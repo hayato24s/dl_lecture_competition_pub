@@ -1,3 +1,12 @@
+"""
+qrsh -g $GROUP -l rt_G.small=1 -l h_rt=1:00:00
+module load python/3.12/3.12.2 cuda/12.1/12.1.1
+cd ~/prj/dl_lecture_competition_pub
+source venv/bin/activate
+python main_001.py
+"""
+
+import os
 import random
 import re
 import time
@@ -7,8 +16,8 @@ import numpy as np
 import pandas
 import torch
 import torch.nn as nn
-from PIL import Image
 from torchvision import transforms
+from torchvision.transforms.functional import to_tensor
 
 
 def set_seed(seed):
@@ -75,7 +84,9 @@ def process_text(text):
 
 # 1. データローダーの作成
 class VQADataset(torch.utils.data.Dataset):
-    def __init__(self, df_path, image_dir, transform=None, answer=True):
+    def __init__(
+        self, df_path, image_dir, all_images_npy_file_path, transform=None, answer=True
+    ):
         self.transform = transform  # 画像の前処理
         self.image_dir = image_dir  # 画像ファイルのディレクトリ
         self.df = pandas.read_json(
@@ -112,6 +123,15 @@ class VQADataset(torch.utils.data.Dataset):
                 v: k for k, v in self.answer2idx.items()
             }  # 逆変換用の辞書(answer)
 
+        self.all_images: np.ndarray | None = None  # (N_all, 224, 224, 3)
+        self.all_images_npy_file_path = all_images_npy_file_path
+
+    def load_all_images(self):
+        self.all_images = np.load(self.all_images_npy_file_path)
+
+    def clear_all_images(self):
+        self.all_images = None
+
     def update_dict(self, dataset):
         """
         検証用データ，テストデータの辞書を訓練データの辞書に更新する．
@@ -146,8 +166,8 @@ class VQADataset(torch.utils.data.Dataset):
         mode_answer_idx : torch.Tensor  (1)
             10人の回答者の回答の中で最頻値の回答のid
         """
-        image = Image.open(f"{self.image_dir}/{self.df['image'][idx]}")
-        image = self.transform(image)
+        assert self.all_images is not None
+        image = to_tensor(self.all_images[idx])
         question = np.zeros(len(self.idx2question) + 1)  # 未知語用の要素を追加
         question_words = self.df["question"][idx].split(" ")
         for word in question_words:
@@ -425,20 +445,36 @@ def main():
         [transforms.Resize((224, 224)), transforms.ToTensor()]
     )
     train_dataset = VQADataset(
-        df_path="./data/train.json", image_dir="./data/train", transform=transform
+        df_path="./data/train.json",
+        image_dir="./data/train",
+        transform=transform,
+        all_images_npy_file_path="data/train_224x224x3_uint8.npy",
     )
     test_dataset = VQADataset(
         df_path="./data/valid.json",
         image_dir="./data/valid",
         transform=transform,
         answer=False,
+        all_images_npy_file_path="data/valid_224x224x3_uint8.npy",
     )
     test_dataset.update_dict(train_dataset)
 
+    train_dataset.load_all_images()
+
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=128, shuffle=True
+        train_dataset,
+        batch_size=384,
+        shuffle=True,
+        num_workers=5,
+        pin_memory=True,
     )
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=5,
+        pin_memory=True,
+    )
 
     model = VQAModel(
         vocab_size=len(train_dataset.question2idx) + 1,
@@ -446,7 +482,7 @@ def main():
     ).to(device)
 
     # optimizer / criterion
-    num_epoch = 20
+    num_epoch = 10
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
 
@@ -463,6 +499,9 @@ def main():
             f"train simple acc: {train_simple_acc:.4f}"
         )
 
+    train_dataset.clear_all_images()
+    test_dataset.load_all_images()
+
     # 提出用ファイルの作成
     model.eval()
     submission = []
@@ -474,8 +513,9 @@ def main():
 
     submission = [train_dataset.idx2answer[id] for id in submission]
     submission = np.array(submission)
-    torch.save(model.state_dict(), "model.pth")
-    np.save("submission.npy", submission)
+    os.mkdir("outputs/001", mode=0o700)
+    torch.save(model.state_dict(), "outputs/001/model.pth")
+    np.save("outputs/001/submission.npy", submission)
 
 
 if __name__ == "__main__":

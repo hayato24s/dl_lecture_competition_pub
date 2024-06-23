@@ -1,0 +1,3 @@
+[tool.ruff]
+extend-include = ["*.ipynb"]
+line-length = 88
