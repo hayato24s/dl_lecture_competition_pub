@@ -178,3 +178,4 @@ pyrightconfig.json
 # Preferences
 data/*
 outputs/*
+venv*
