@@ -4,12 +4,12 @@ transformers ViLT
 qrsh -g $GROUP -l rt_G.large=1 -l h_rt=1:00:00
 tmux new -s s0
 source venv/bin/activate
-python main_004.py train
+python main_005.py train
 
 qrsh -g $GROUP -l rt_G.small=1 -l h_rt=1:00:00
 tmux new -s s0
 source venv/bin/activate
-python main_004.py predict
+python main_005.py predict
 """
 
 import pickle
@@ -28,6 +28,12 @@ import torch.utils
 import torch.utils.data
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
+from torchvision.transforms import (
+    ColorJitter,
+    GaussianBlur,
+    RandomAffine,
+    RandomPerspective,
+)
 from torchvision.transforms.functional import to_tensor
 from transformers import (
     ViltForQuestionAnswering,
@@ -98,6 +104,13 @@ def process_text(text):
 
 
 class VQADataset(torch.utils.data.Dataset):
+    data_augment_list = [
+        ColorJitter(brightness=(0.9, 1.1), contrast=(0.9, 1.1), saturation=(0.9, 1.1)),
+        RandomPerspective(distortion_scale=0.1, p=1.0),
+        RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1)),
+        GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
+    ]
+
     def __init__(
         self,
         ann_json_file_path: str,
@@ -105,12 +118,14 @@ class VQADataset(torch.utils.data.Dataset):
         answer2idx: dict,
         idx2answer: dict,
         include_answers=True,
+        apply_data_augmentation=False,
     ):
         self.df = pd.read_json(ann_json_file_path)
         self.image_hdf5_file_path = image_hdf5_file_path
         self.answer2idx = answer2idx
         self.idx2answer = idx2answer
         self.include_answers = include_answers
+        self.apply_data_augmentation = apply_data_augmentation
 
         self.processor = ViltProcessor.from_pretrained(
             "dandelin/vilt-b32-finetuned-vqa"
@@ -138,6 +153,11 @@ class VQADataset(torch.utils.data.Dataset):
 
         image = to_tensor(image)
         question = process_text(self.df["question"][idx])
+
+        if self.apply_data_augmentation:
+            for data_augment in self.data_augment_list:
+                if random.random() < 0.25:
+                    image = data_augment(image)
 
         if not self.include_answers:
             return {
@@ -327,7 +347,7 @@ class LitModule(L.LightningModule):
 def main_train():
     fix_seed(42)
 
-    output_dir_path = Path("outputs/004")
+    output_dir_path = Path("outputs/005")
     output_dir_path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     answer2idx, idx2answer = VQADataset.load_corpus()
@@ -344,6 +364,7 @@ def main_train():
     )
     setattr(train_dataset, "collate_fn", train_dataset.dataset.collate_fn)
     setattr(valid_dataset, "collate_fn", valid_dataset.dataset.collate_fn)
+    train_dataset.dataset.apply_data_augmentation = True
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -406,7 +427,7 @@ def main_train():
 def main_predict():
     fix_seed(42)
 
-    output_dir_path = Path("outputs/004")
+    output_dir_path = Path("outputs/005")
     output_dir_path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     answer2idx, idx2answer = VQADataset.load_corpus()
@@ -445,12 +466,13 @@ def main_predict():
 
     trainer = L.Trainer(
         accelerator="gpu",
+        logger=False,
         deterministic=True,
         detect_anomaly=False,
     )
 
     litmodule = LitModule.load_from_checkpoint(
-        checkpoint_path="outputs/004/checkpoints/epoch=022-val_vqa_metric=0.6006.ckpt",
+        checkpoint_path="",
         map_location="cpu",
         model=model,
     )
