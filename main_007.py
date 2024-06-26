@@ -484,7 +484,7 @@ def main_predict():
     )
 
     litmodule = LitModule.load_from_checkpoint(
-        checkpoint_path="outputs/007/checkpoints/epoch=017-val_vqa_metric=0.5910.ckpt",
+        checkpoint_path="outputs/007/checkpoints/epoch=029-val_vqa_metric=0.5931.ckpt",
         map_location="cpu",
         model=model,
     )
