@@ -1,6 +1,8 @@
 """
 transformers ViLT
 
+use lighting module, multiple gpus
+
 qrsh -g $GROUP -l rt_G.large=1 -l h_rt=1:00:00
 tmux new -s s0
 source venv/bin/activate
