@@ -1,17 +1,17 @@
 """
 transformers ViLT
 
-add dropout
+dropout 0.2
 
 qrsh -g $GROUP -l rt_G.large=1 -l h_rt=1:00:00
 tmux new -s s0
 source venv/bin/activate
-python main_006.py train
+python main_007.py train
 
 qrsh -g $GROUP -l rt_G.small=1 -l h_rt=1:00:00
 tmux new -s s0
 source venv/bin/activate
-python main_006.py predict
+python main_007.py predict
 """
 
 import pickle
@@ -349,7 +349,7 @@ class LitModule(L.LightningModule):
 def main_train():
     fix_seed(42)
 
-    output_dir_path = Path("outputs/006")
+    output_dir_path = Path("outputs/007")
     output_dir_path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     answer2idx, idx2answer = VQADataset.load_corpus()
@@ -400,7 +400,7 @@ def main_train():
 
     for module in model.modules():
         if isinstance(module, nn.Dropout):
-            module.p = 0.1
+            module.p = 0.2
 
     model.train()
 
@@ -433,7 +433,7 @@ def main_train():
 def main_predict():
     fix_seed(42)
 
-    output_dir_path = Path("outputs/006")
+    output_dir_path = Path("outputs/007")
     output_dir_path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     answer2idx, idx2answer = VQADataset.load_corpus()
@@ -470,7 +470,7 @@ def main_predict():
 
     for module in model.modules():
         if isinstance(module, nn.Dropout):
-            module.p = 0.1
+            module.p = 0.2
 
     model.eval()
 
@@ -484,7 +484,7 @@ def main_predict():
     )
 
     litmodule = LitModule.load_from_checkpoint(
-        checkpoint_path="outputs/006/checkpoints/epoch=026-val_vqa_metric=0.6043.ckpt",
+        checkpoint_path="outputs/007/checkpoints/epoch=026-val_vqa_metric=0.6043.ckpt",
         map_location="cpu",
         model=model,
     )
